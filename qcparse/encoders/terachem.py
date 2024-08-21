@@ -21,6 +21,8 @@ def encode(inp_obj: ProgramInput) -> NativeInput:
     # calctype
     if inp_obj.calctype.value == CalcType.hessian:
         calctype = "frequencies"
+    elif inp_obj.calctype.value == CalcType.meci:
+        calctype = "conical"
     else:
         calctype = inp_obj.calctype.value
 

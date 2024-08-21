@@ -1,8 +1,10 @@
 """Parsers for TeraChem output files."""
 
 import re
+from typing import Union, List, Tuple
+from pathlib import Path
 
-from qcio import CalcType
+from qcio import CalcType, Structure, OptimizationResults
 
 from qcparse.exceptions import MatchNotFoundError
 from qcparse.models import FileType, ParsedDataCollector
@@ -130,6 +132,24 @@ def parse_version_string(string: str) -> str:
     return f"{parse_terachem_version(string)} [{parse_version_control_details(string)}]"
 
 
+def parse_meci_energies(string: str) -> Tuple[List[float], List[float]]:
+    """Parse lower and upper state energies from TeraChem MECI calculation stdout"""
+    lower_regex = r"Lower state energy:\s*(-?\d+\.\d+)"
+    upper_regex = r"Upper state energy:\s*(-?\d+\.\d+)"
+    
+    lower_matches = re.findall(lower_regex, string)
+    upper_matches = re.findall(upper_regex, string)
+    
+    if not lower_matches or not upper_matches:
+        raise MatchNotFoundError("Lower or upper state energy", string)
+    
+    # Convert matches to floats and store in data_collector
+    lower_state_energies = [float(energy) for energy in lower_matches]
+    upper_state_energies = [float(energy) for energy in upper_matches]
+
+    return lower_state_energies, upper_state_energies
+
+
 def calculation_succeeded(string: str) -> bool:
     """Determine from TeraChem stdout if a calculation completed successfully."""
     regex = r"Job finished:"
@@ -137,3 +157,28 @@ def calculation_succeeded(string: str) -> bool:
         # If any match for a failure regex is found, the calculation failed
         return True
     return False
+
+
+def parse_meci_dir(directory: Union[str, Path]) -> OptimizationResults:
+    """Parse the output of a TeraChem meci calculation.
+
+    Args:
+        directory: Directory containing the output of a TeraChem meci calculation.
+
+    Returns:
+        An OptimizationResults object containing the results of the calculation.
+    """
+    # Parses all the structures in the meci_conformers.xyz file
+    geoms: List[Structure] = Structure.open(directory / "meci_conformers.xyz")
+    # Comment values are at struct.extras[Structure._xyz_comment_key]
+    
+    # Parse the output file
+    with open(directory / "meci.out", "r") as f:
+        string = f.read()
+
+    # Parse the energy
+    regex = r"FINAL ENERGY: (-?\d+(?:\.\d+)?)"
+    energy = float(regex_search(regex, string).group(1))
+
+    return energy
+
