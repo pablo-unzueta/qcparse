@@ -63,12 +63,12 @@ def parse(
 
     # Apply parsers to the file content.
     for ps in parser_specs:
+        logging.debug(ps)  #
         try:
             ps.parser(file_content, data_collector)
         except MatchNotFoundError:  # Raised if the parser can't find its data
             if ps.required:
                 raise
-
     return SinglePointResults(**data_collector.dict())
 
 

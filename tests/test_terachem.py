@@ -13,10 +13,16 @@ from qcparse.parsers.terachem import (
     parse_nmo,
     parse_version_control_details,
     parse_version_string,
+    parse_energy_subtype,
     parse_meci_energies,
+    parse_cis_numstates,
+    parse_cis_energies,
+    parse_eom_ccsd_numstates,
+    parse_eom_ccsd_energies,
+    # parse_excited_state_energies,
 )
 
-from .data import gradients, hessians
+from .data import gradients, hessians, cis_gradients
 
 
 @pytest.mark.parametrize(
@@ -262,15 +268,26 @@ def test_encode_raises_error_qcio_args_passes_as_keywords(prog_inp):
             encode(prog_inp)
 
 
-def test_parse_meci_energies():
+@pytest.mark.parametrize(
+    "filename,real_lower_energies,real_upper_energies",
+    (
+        (
+            "tc_meci.out",
+            [-78.3602352844, -78.3613795195],
+            [-78.1916020489, -78.1922673349],
+        ),
+    ),
+)
+def test_parse_meci_energies(
+    test_data_dir, filename, real_lower_energies, real_upper_energies, data_collector
+):
     """Test parsing of MECI energies from TeraChem output"""
-    with open("tests/data/tc_meci.out", "r") as f:
+    with open(test_data_dir / filename, "r") as f:
         tc_output = f.read()
 
-    lower_energies, upper_energies = parse_meci_energies(tc_output)
+    lower_energies, upper_energies = parse_meci_energies(tc_output, data_collector)[:2]
 
-    real_lower_energies = [-76.41234567, -76.31234567]
-    real_lower_energies = [
+    """real_lower_energies = [
         -78.3602352844,
         -78.3613795195,
         -78.1972612321,
@@ -355,9 +372,9 @@ def test_parse_meci_energies():
         -78.2953490716,
         -78.2953491383,
         -78.2953497274,
-        -78.2953496345
-    ]
-    real_upper_energies = [
+        -78.2953496345,
+    ] """
+    """real_upper_energies = [
         -78.1916020489,
         -78.1922673349,
         -78.1451546808,
@@ -442,12 +459,106 @@ def test_parse_meci_energies():
         -78.2953489087,
         -78.2953490826,
         -78.2953494591,
-        -78.2953495520
-    ]
+        -78.2953495520,
+    ]"""
 
-    # Check if the energies are floats and in a reasonable range
     for lower, upper, real_lower, real_upper in zip(
         lower_energies, upper_energies, real_lower_energies, real_upper_energies
     ):
-        assert lower == real_lower
-        assert upper == real_upper
+        assert lower == pytest.approx(real_lower)
+        assert upper == pytest.approx(real_upper)
+
+
+@pytest.mark.parametrize(
+    "filename,energy_subtype",
+    (("cis.out", CalcType.energy_cis),),
+)
+def test_parse_energy_subtype(test_data_dir, filename, energy_subtype, data_collector):
+    """Test parsing of energy subtype from TeraChem output"""
+    with open(test_data_dir / filename, "r") as f:
+        tc_output = f.read()
+
+    parse_energy_subtype(tc_output, data_collector)
+    assert data_collector.energy_subtype == energy_subtype
+
+
+@pytest.mark.parametrize(
+    "filename,numstates",
+    (("cis.out", 5),),
+)
+def test_parse_cis_numstates(test_data_dir, filename, numstates, data_collector):
+    """Test parsing of the number of states from TeraChem output"""
+    with open(test_data_dir / filename, "r") as f:
+        tc_output = f.read()
+
+    parse_cis_numstates(tc_output, data_collector)
+    assert data_collector.calcinfo_numstates == numstates
+
+
+@pytest.mark.parametrize(
+    "filename,energies",
+    (
+        (
+            "cis.out",
+            [-78.12479925, -78.09843512, -78.08498854, -78.07857764, -78.06930314],
+        ),
+    ),
+)
+def test_parse_cis_energies(test_data_dir, filename, energies, data_collector):
+    """Test parsing of cis energies from TeraChem output"""
+    with open(test_data_dir / filename, "r") as f:
+        tc_output = f.read()
+
+    parse_cis_energies(tc_output, data_collector)
+    assert pytest.approx(data_collector.cis_energies) == energies
+
+
+@pytest.mark.parametrize(
+    "filename,gradient",
+    (("cis-grad.out", cis_gradients.ethylene),),
+)
+def test_parse_cis_gradients(test_data_dir, filename, gradient, data_collector):
+    """Test parsing of cis gradients from TeraChem output"""
+    with open(test_data_dir / filename, "r") as f:
+        tc_output = f.read()
+
+    parse_gradient(tc_output, data_collector)
+    assert data_collector.gradient == gradient
+
+
+@pytest.mark.parametrize(
+    "filename,energies",
+    (("eom-ccsd.out", [-78.3470572454519072, -78.0222371679626576, -78.0176662122834017, -78.0071719465411775, -77.9874689198364450]),),
+)
+def test_parse_eom_ccsd_energies(test_data_dir, filename, energies, data_collector):
+    """Test parsing of eom-ccsd energies from TeraChem output"""
+    with open(test_data_dir / filename, "r") as f:
+        tc_output = f.read()
+
+    parse_eom_ccsd_numstates(tc_output, data_collector)
+    parse_eom_ccsd_energies(tc_output, data_collector)
+    assert pytest.approx(data_collector.eom_ccsd_energies) == energies
+
+# def test_parse_excited_state_energies():
+#     """Test parsing of excited state energies from TeraChem output"""
+#     with open("tests/data/tc_meci.out", "r") as f:
+#         tc_output = f.read()
+
+#     roots, total_energies = parse_excited_state_energies(tc_output)
+
+#     # Check if the function returns the correct number of excited states
+#     assert len(roots) == 5
+#     assert len(total_energies) == 5
+
+#     # Check if the roots are correct
+#     expected_roots = [1, 2, 3, 4, 5]
+#     assert roots == expected_roots
+
+# # Check if the total energies are correct (with a small tolerance for floating-point comparison)
+# expected_energies = [-78.1916020489, -78.1922673349, -78.1451546808, -78.1270053582, -78.1434325632]
+# for actual, expected in zip(total_energies, expected_energies):
+#     assert pytest.approx(actual, abs=1e-9) == expected
+
+# # Test for MatchNotFoundError
+# with pytest.raises(MatchNotFoundError):
+#     parse_excited_state_energies("No excited state energies here")

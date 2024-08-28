@@ -17,10 +17,14 @@ SUPPORTED_FILETYPES = {FileType.stdout}
 def parse_calctype(string: str) -> CalcType:
     """Parse the calctype from TeraChem stdout."""
     calctypes = {
+        r"RUNNING GEOMETRY OPTMIZATION": CalcType.minimize,
+        r"SINGLE POINT NONADIABATIC COUPLING": CalcType.coupling,
+        r"SEARCHING FOR THE TRANSITION STATE": CalcType.neb,
         r"SINGLE POINT ENERGY CALCULATIONS": CalcType.energy,
         r"SINGLE POINT GRADIENT CALCULATIONS": CalcType.gradient,
         r"FREQUENCY ANALYSIS": CalcType.hessian,
     }
+
     for regex, calctype in calctypes.items():
         match = re.search(regex, string)
         if match:
@@ -38,6 +42,61 @@ def parse_energy(string: str, data_collector: ParsedDataCollector):
     """
     regex = r"FINAL ENERGY: (-?\d+(?:\.\d+)?)"
     data_collector.energy = float(regex_search(regex, string).group(1))
+
+
+@parser(only=[CalcType.energy])
+def parse_energy_subtype(string: str, data_collector: ParsedDataCollector):
+    """Parse the energy subtype from TeraChem stdout."""
+    energy_subtypes = {
+        r"EOM-CCSD Energies": CalcType.energy_eom_ccsd,
+        r"Restricted CIS Parameters": CalcType.energy_cis,
+        r"Restricted hh-TDA Parameters": CalcType.energy_hhtda,
+        r"Active Space Parameters": CalcType.energy_cas,
+    }
+    for regex, calctype in energy_subtypes.items():
+        match = re.search(regex, string)
+        if match:
+            data_collector.energy_subtype = calctype
+
+
+@parser(only=[CalcType.energy_cis])
+def parse_cis_numstates(string: str, data_collector: ParsedDataCollector):
+    """Parse the number of states from TeraChem stdout."""
+    regex = r"Number of roots to find:\s*(\d+)"
+    data_collector.cis_info_numstates = int(regex_search(regex, string).group(1))
+
+
+@parser(only=[CalcType.energy_cis])
+def parse_cis_energies(string: str, data_collector: ParsedDataCollector):
+    """Parse the cis energies from TeraChem stdout."""
+    regex = r"^\s*\d+\s+(-?\d+\.\d+)\s+\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+\s+-?\d+\.\d+\s+\d+\s*->\s*\d"
+    matches = re.findall(regex, string, re.MULTILINE)
+
+    if matches:
+        data_collector.cis_energies = [float(energy) for energy in matches]
+    else:
+        raise MatchNotFoundError(regex, string)
+
+
+def parse_eom_ccsd_numstates(string: str, data_collector: ParsedDataCollector):
+    """Parse the number of states from TeraChem stdout."""
+    regex = r"Number of states:\s*(\d+)"
+    data_collector.eom_ccsd_numstates = int(regex_search(regex, string).group(1))
+
+
+@parser(only=[CalcType.energy_eom_ccsd])
+def parse_eom_ccsd_energies(string: str, data_collector: ParsedDataCollector):
+    regex = r"^\s*Root\s+\d+:\s+(-?\d+\.\d+)"  # TODO: Find a better regex to get rid of silly logic below
+    matches = re.findall(regex, string, re.MULTILINE)
+
+    assert data_collector.eom_ccsd_numstates
+    # Here eom_ccsd_numstates only counts number of excited states
+    # we need to include the ground state in the number of states
+    matches = matches[-(data_collector.eom_ccsd_numstates + 1) :]
+    if matches:
+        data_collector.eom_ccsd_energies = [float(energy) for energy in matches]
+    else:
+        raise MatchNotFoundError(regex, string)
 
 
 @parser(only=[CalcType.gradient, CalcType.hessian])
@@ -132,22 +191,26 @@ def parse_version_string(string: str) -> str:
     return f"{parse_terachem_version(string)} [{parse_version_control_details(string)}]"
 
 
-def parse_meci_energies(string: str) -> Tuple[List[float], List[float]]:
+def parse_meci_energies(
+    string: str, data_collector: ParsedDataCollector
+) -> Tuple[List[float], List[float]]:
     """Parse lower and upper state energies from TeraChem MECI calculation stdout"""
     lower_regex = r"Lower state energy:\s*(-?\d+\.\d+)"
     upper_regex = r"Upper state energy:\s*(-?\d+\.\d+)"
-    
+
     lower_matches = re.findall(lower_regex, string)
     upper_matches = re.findall(upper_regex, string)
-    
+
     if not lower_matches or not upper_matches:
         raise MatchNotFoundError("Lower or upper state energy", string)
-    
+
     # Convert matches to floats and store in data_collector
     lower_state_energies = [float(energy) for energy in lower_matches]
     upper_state_energies = [float(energy) for energy in upper_matches]
 
-    return lower_state_energies, upper_state_energies
+    data_collector.lower_state_energies = lower_state_energies
+    data_collector.upper_state_energies = upper_state_energies
+    return data_collector.lower_state_energies, data_collector.upper_state_energies
 
 
 def calculation_succeeded(string: str) -> bool:
@@ -171,7 +234,7 @@ def parse_meci_dir(directory: Union[str, Path]) -> OptimizationResults:
     # Parses all the structures in the meci_conformers.xyz file
     geoms: List[Structure] = Structure.open(directory / "meci_conformers.xyz")
     # Comment values are at struct.extras[Structure._xyz_comment_key]
-    
+
     # Parse the output file
     with open(directory / "meci.out", "r") as f:
         string = f.read()
@@ -182,3 +245,20 @@ def parse_meci_dir(directory: Union[str, Path]) -> OptimizationResults:
 
     return energy
 
+
+def parse_neb(string: str, data_collector: ParsedDataCollector): ...
+
+
+def parse_cas(string: str, data_collector: ParsedDataCollector): ...
+
+
+def parse_hhtda(string: str, data_collector: ParsedDataCollector): ...
+
+
+def parse_md(string: str, data_collector: ParsedDataCollector): ...
+
+
+def parse_minimize(string: str, data_collector: ParsedDataCollector): ...
+
+
+def parse_coupling(string: str, data_collector: ParsedDataCollector): ...
